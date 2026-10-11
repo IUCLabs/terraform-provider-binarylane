@@ -15,7 +15,7 @@ description: |-
 terraform {
   required_providers {
     binarylane = {
-      source = "oscarhermoso/binarylane"
+      source = "git.unkin.net/unkin/binarylane"
     }
   }
 }
