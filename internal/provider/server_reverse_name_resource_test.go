@@ -1,7 +1,13 @@
 package provider
 
 import (
+	"context"
+	"fmt"
+	"net/http"
+	"strconv"
 	"testing"
+
+	"terraform-provider-binarylane/internal/binarylane"
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
@@ -47,8 +53,14 @@ resource "binarylane_server" "test" {
 }
 `
 
+	var serverId int64
+	var ipv4Address string
+
 	resource.ParallelTest(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		CheckDestroy: func(_ *terraform.State) error {
+			return testAccCheckServerReverseNameCleared(serverId, ipv4Address)
+		},
 		Steps: []resource.TestStep{
 			// Create and Read testing
 			{
@@ -64,6 +76,13 @@ resource "binarylane_server_reverse_name" "test" {
 					resource.TestCheckResourceAttrPair("binarylane_server_reverse_name.test", "ipv4_address", "binarylane_server.test", "public_ipv4_addresses.0"),
 					resource.TestCheckResourceAttr("binarylane_server_reverse_name.test", "reverse_name", "tf-test-ptr.example.com"),
 					resource.TestCheckResourceAttrSet("binarylane_server_reverse_name.test", "id"),
+					func(s *terraform.State) error {
+						attrs := s.RootModule().Resources["binarylane_server_reverse_name.test"].Primary.Attributes
+						var err error
+						serverId, err = strconv.ParseInt(attrs["server_id"], 10, 64)
+						ipv4Address = attrs["ipv4_address"]
+						return err
+					},
 				),
 			},
 			// ImportState testing
@@ -89,7 +108,41 @@ resource "binarylane_server_reverse_name" "test" {
 					resource.TestCheckResourceAttr("binarylane_server_reverse_name.test", "reverse_name", "tf-test-ptr-updated.example.com"),
 				),
 			},
+			// Removing the resource clears the reverse name while the server still exists
+			{
+				Config: providerConfig + serverConfig,
+				Check: func(_ *terraform.State) error {
+					return testAccCheckServerReverseNameCleared(serverId, ipv4Address)
+				},
+			},
 			// Delete testing automatically occurs in TestCase
 		},
 	})
+}
+
+func testAccCheckServerReverseNameCleared(serverId int64, ipv4Address string) error {
+	client, err := binarylane.NewClientWithConfig("", "")
+	if err != nil {
+		return err
+	}
+	resp, err := client.GetServersServerIdWithResponse(context.Background(), serverId)
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode() == http.StatusNotFound {
+		return nil
+	}
+	if resp.StatusCode() != http.StatusOK {
+		return fmt.Errorf("unexpected status %s reading server %d: %s", resp.Status(), serverId, resp.Body)
+	}
+	for _, n := range resp.JSON200.Server.Networks.V4 {
+		if n.IpAddress != ipv4Address || n.ReverseName == nil {
+			continue
+		}
+		switch *n.ReverseName {
+		case "tf-test-ptr.example.com", "tf-test-ptr-updated.example.com":
+			return fmt.Errorf("reverse name for %s on server %d not cleared: %s", ipv4Address, serverId, *n.ReverseName)
+		}
+	}
+	return nil
 }

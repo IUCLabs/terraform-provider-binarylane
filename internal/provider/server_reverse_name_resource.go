@@ -259,8 +259,12 @@ func (r *serverReverseNameResource) changeReverseName(ctx context.Context, serve
 	if err != nil {
 		return fmt.Errorf("error changing reverse name for server: server_id=%d, error: %w", serverId, err)
 	}
-	if actionResp.StatusCode() != http.StatusOK {
+	if actionResp.StatusCode() != http.StatusOK && actionResp.StatusCode() != http.StatusAccepted {
 		return fmt.Errorf("unexpected HTTP status code changing reverse name for server: server_id=%d, details: %s", serverId, actionResp.Body)
+	}
+	// 202 Accepted carries no action ID to poll
+	if actionResp.JSON200 == nil {
+		return nil
 	}
 
 	sr := serverResource{bc: r.bc}
