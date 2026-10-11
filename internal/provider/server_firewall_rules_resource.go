@@ -121,6 +121,11 @@ func (r *serverFirewallRulesResource) Create(ctx context.Context, req resource.C
 		return
 	}
 
+	resp.Diagnostics.Append(resolveUnknownDestinationPorts(ctx, &data)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
 	// Save data into Terraform state
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
@@ -207,6 +212,11 @@ func (r *serverFirewallRulesResource) Update(ctx context.Context, req resource.U
 		return
 	}
 
+	resp.Diagnostics.Append(resolveUnknownDestinationPorts(ctx, &data)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
 	// Save updated data into Terraform state
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
@@ -245,6 +255,22 @@ func (r *serverFirewallRulesResource) Delete(ctx context.Context, req resource.D
 	}
 }
 
+// Omitted destination_ports (all ports) are planned as unknown because the attribute is computed.
+func resolveUnknownDestinationPorts(ctx context.Context, data *serverFirewallRulesResourceModel) diag.Diagnostics {
+	var rules []resources.FirewallRulesValue
+	diags := data.FirewallRules.ElementsAs(ctx, &rules, false)
+	if diags.HasError() {
+		return diags
+	}
+	for i := range rules {
+		if rules[i].DestinationPorts.IsUnknown() {
+			rules[i].DestinationPorts = types.ListNull(types.StringType)
+		}
+	}
+	data.FirewallRules, diags = types.ListValueFrom(ctx, resources.FirewallRulesValue{}.Type(ctx), rules)
+	return diags
+}
+
 func GetFirewallRulesState(ctx context.Context, firewallRules *[]binarylane.AdvancedFirewallRule) (basetypes.ListValue, diag.Diagnostics) {
 	var diags diag.Diagnostics
 
@@ -258,7 +284,7 @@ func GetFirewallRulesState(ctx context.Context, firewallRules *[]binarylane.Adva
 			destinationAddresses, diag := types.ListValueFrom(ctx, types.StringType, rule.DestinationAddresses)
 			diags.Append(diag...)
 
-			var destinationPorts basetypes.ListValue
+			destinationPorts := types.ListNull(types.StringType)
 			if rule.DestinationPorts != nil {
 				destinationPorts, diag = types.ListValueFrom(ctx, types.StringType, rule.DestinationPorts)
 				diags.Append(diag...)
