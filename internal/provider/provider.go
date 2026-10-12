@@ -103,6 +103,7 @@ func (p *binarylaneProvider) Resources(_ context.Context) []func() resource.Reso
 	return []func() resource.Resource{
 		NewServerResource,
 		NewServerFirewallRulesResource,
+		NewServerReverseNameResource,
 		NewSshKeyResource,
 		NewVpcResource,
 		NewVpcRouteEntriesResource,
