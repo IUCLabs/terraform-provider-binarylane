@@ -26,7 +26,7 @@ func main() {
 	flag.Parse()
 
 	opts := providerserver.ServeOpts{
-		Address: "hashicorp.com/oscarhermoso/binarylane",
+		Address: "git.unkin.net/unkin/binarylane",
 		Debug:   debug,
 	}
 

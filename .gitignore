@@ -30,3 +30,4 @@ tmp
 # Normally, you wouldn't want to exclude lock files, but our examples are tested
 # with a locally built provider and won't be useful to others.
 .terraform.lock.hcl
+*.zip
