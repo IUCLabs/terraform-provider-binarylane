@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"terraform-provider-binarylane/internal/binarylane"
+	"time"
 
 	"github.com/hashicorp/terraform-plugin-framework-validators/int64validator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
@@ -262,17 +263,40 @@ func (r *serverReverseNameResource) changeReverseName(ctx context.Context, serve
 	if actionResp.StatusCode() != http.StatusOK && actionResp.StatusCode() != http.StatusAccepted {
 		return fmt.Errorf("unexpected HTTP status code changing reverse name for server: server_id=%d, details: %s", serverId, actionResp.Body)
 	}
-	// 202 Accepted carries no action ID to poll
-	if actionResp.JSON200 == nil {
+	// The change_reverse_name action can stay unresolvable, so wait for the result on the server instead
+	if reverseName == nil {
 		return nil
 	}
+	return r.waitForReverseName(ctx, serverId, ipv4Address, *reverseName)
+}
 
-	sr := serverResource{bc: r.bc}
-	if err := sr.waitForServerAction(ctx, serverId, actionResp.JSON200.Action.Id); err != nil {
-		return fmt.Errorf("error changing reverse name: %w", err)
+func (r *serverReverseNameResource) waitForReverseName(ctx context.Context, serverId int64, ipv4Address string, want string) error {
+	ctx, cancel := context.WithTimeout(ctx, serverActionTimeout)
+	defer cancel()
+
+	var last string
+	for {
+		serverResp, err := r.bc.client.GetServersServerIdWithResponse(ctx, serverId)
+		if err == nil && serverResp.StatusCode() == http.StatusOK {
+			for _, n := range serverResp.JSON200.Server.Networks.V4 {
+				if n.IpAddress != ipv4Address {
+					continue
+				}
+				if n.ReverseName != nil {
+					if *n.ReverseName == want {
+						return nil
+					}
+					last = *n.ReverseName
+				}
+			}
+		}
+
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("timed out waiting for reverse name: server_id=%d, ipv4_address=%s, want=%q, last=%q", serverId, ipv4Address, want, last)
+		case <-time.After(serverActionPollInterval):
+		}
 	}
-
-	return nil
 }
 
 func formatServerReverseNameId(serverId int64, ipv4Address string) string {

@@ -1361,28 +1361,36 @@ func (r *serverResource) ImportState(
 	resp.Diagnostics.Append(diags...)
 }
 
+var (
+	serverActionPollInterval = 5 * time.Second
+	serverActionTimeout      = 20 * time.Minute
+)
+
 func (r *serverResource) waitForServerAction(ctx context.Context, serverId int64, actionId int64) error {
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, serverActionTimeout)
+		defer cancel()
+	}
+
 	var lastReadyResp *binarylane.GetServersServerIdActionsActionIdResponse
 
 	for {
-		select {
-		case <-ctx.Done():
-			if lastReadyResp == nil {
-				return fmt.Errorf("timed out waiting for server action: server_id=%d, action_id=%d", serverId, actionId)
-			} else {
-				return fmt.Errorf("timed out waiting for server action: server_id=%d, action_id=%d, last response was status=%s, body: %s",
-					serverId, actionId, lastReadyResp.Status(), lastReadyResp.Body)
+		readyResp, err := r.bc.client.GetServersServerIdActionsActionIdWithResponse(ctx, serverId, actionId)
+		if err != nil && ctx.Err() == nil {
+			return fmt.Errorf("unexpected error waiting for server action: server_id=%d, action_id=%d, error: %w", serverId, actionId, err)
+		}
+		if err == nil {
+			if readyResp.StatusCode() == http.StatusNotFound {
+				return fmt.Errorf("server action not found: server_id=%d, action_id=%d, body: %s", serverId, actionId, readyResp.Body)
 			}
-		default:
-			readyResp, err := r.bc.client.GetServersServerIdActionsActionIdWithResponse(ctx, serverId, actionId)
-			if err != nil {
-				return fmt.Errorf("unexpected error waiting for server action: server_id=%d, action_id=%d, error: %w", serverId, actionId, err)
-			}
-			if readyResp.StatusCode() == http.StatusOK && readyResp.JSON200.Action.Status == binarylane.Errored {
-				return fmt.Errorf("server action failed to with error: server_id=%d, action_id=%d, error: %s", serverId, actionId, readyResp.Body)
-			}
-			if readyResp.StatusCode() == http.StatusOK && readyResp.JSON200.Action.CompletedAt != nil {
-				return nil
+			if readyResp.StatusCode() == http.StatusOK {
+				switch {
+				case readyResp.JSON200.Action.Status == binarylane.Errored:
+					return fmt.Errorf("server action failed to with error: server_id=%d, action_id=%d, error: %s", serverId, actionId, readyResp.Body)
+				case readyResp.JSON200.Action.Status == binarylane.Completed, readyResp.JSON200.Action.CompletedAt != nil:
+					return nil
+				}
 			}
 			lastReadyResp = readyResp
 			tflog.Debug(ctx,
@@ -1391,7 +1399,16 @@ func (r *serverResource) waitForServerAction(ctx context.Context, serverId int64
 				),
 			)
 		}
-		time.Sleep(time.Second * 5)
+
+		select {
+		case <-ctx.Done():
+			if lastReadyResp == nil {
+				return fmt.Errorf("timed out waiting for server action: server_id=%d, action_id=%d", serverId, actionId)
+			}
+			return fmt.Errorf("timed out waiting for server action: server_id=%d, action_id=%d, last response was status=%s, body: %s",
+				serverId, actionId, lastReadyResp.Status(), lastReadyResp.Body)
+		case <-time.After(serverActionPollInterval):
+		}
 	}
 }
 
