@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"terraform-provider-binarylane/internal/binarylane"
 
@@ -40,8 +41,6 @@ func TestServerReverseNameResourceUnit(t *testing.T) {
 			if postStatus == http.StatusOK {
 				_, _ = w.Write([]byte(`{"action":{"id":9,"status":"in-progress"}}`))
 			}
-		case r.Method == http.MethodGet && r.URL.Path == "/servers/1/actions/9":
-			_, _ = w.Write([]byte(`{"action":{"id":9,"status":"completed","completed_at":"2026-01-01T00:00:00Z"}}`))
 		case r.Method == http.MethodGet && r.URL.Path == "/servers/1":
 			if !serverFound {
 				w.WriteHeader(http.StatusNotFound)
@@ -120,6 +119,7 @@ func TestServerReverseNameResourceUnit(t *testing.T) {
 		t.Fatal("read: expected state removed when server is 404")
 	}
 
+	serverFound, serverIp, serverName = true, "203.0.113.7", "ptr.example.com"
 	postStatus = http.StatusAccepted
 	updateResp := resource.UpdateResponse{State: emptyState()}
 	r.Update(ctx, resource.UpdateRequest{Plan: plan, State: state}, &updateResp)
@@ -137,5 +137,86 @@ func TestServerReverseNameResourceUnit(t *testing.T) {
 	}
 	if lastBody["ipv4_address"] != "203.0.113.7" {
 		t.Fatalf("delete: unexpected request body %v", lastBody)
+	}
+}
+
+// The change_reverse_name action never resolves while the PTR is already applied on the server.
+func TestServerReverseNameCreateStuckActionUnit(t *testing.T) {
+	serverActionPollInterval = time.Millisecond
+	t.Cleanup(func() { serverActionPollInterval = 5 * time.Second })
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	serverGets := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/servers/1/actions":
+			_, _ = w.Write([]byte(`{"action":{"id":9,"status":"in-progress"}}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/servers/1/actions/9":
+			w.WriteHeader(http.StatusNotFound)
+		case r.Method == http.MethodGet && r.URL.Path == "/servers/1":
+			serverGets++
+			name := "default.example.net"
+			if serverGets > 2 {
+				name = "ptr.example.com"
+			}
+			_, _ = fmt.Fprintf(w, `{"server":{"id":1,"networks":{"v4":[{"ip_address":"203.0.113.7","type":"public","reverse_name":%q}]}}}`, name)
+		default:
+			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(http.StatusTeapot)
+		}
+	}))
+	defer srv.Close()
+
+	client, err := binarylane.NewClientWithConfig(srv.URL, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := &serverReverseNameResource{bc: &BinarylaneClient{client: client}}
+	want := "ptr.example.com"
+	if err := r.changeReverseName(ctx, 1, "203.0.113.7", &want); err != nil {
+		t.Fatalf("create must finish once the server reports the reverse name: %v", err)
+	}
+	if serverGets != 3 {
+		t.Fatalf("expected to poll the server until the reverse name applied, got %d GETs", serverGets)
+	}
+}
+
+func TestWaitForServerActionUnit(t *testing.T) {
+	serverActionPollInterval = time.Millisecond
+	t.Cleanup(func() { serverActionPollInterval = 5 * time.Second })
+
+	for name, tc := range map[string]struct {
+		status  int
+		body    string
+		wantErr bool
+	}{
+		"completed_at set":          {http.StatusOK, `{"action":{"id":9,"status":"in-progress","completed_at":"2026-01-01T00:00:00Z"}}`, false},
+		"completed status only":     {http.StatusOK, `{"action":{"id":9,"status":"completed"}}`, false},
+		"errored":                   {http.StatusOK, `{"action":{"id":9,"status":"errored"}}`, true},
+		"not found":                 {http.StatusNotFound, `{"message":"Action not found."}`, true},
+		"in progress until timeout": {http.StatusOK, `{"action":{"id":9,"status":"in-progress"}}`, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			defer srv.Close()
+
+			client, err := binarylane.NewClientWithConfig(srv.URL, "test")
+			if err != nil {
+				t.Fatal(err)
+			}
+			sr := serverResource{bc: &BinarylaneClient{client: client}}
+			ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+			defer cancel()
+			if err := sr.waitForServerAction(ctx, 1, 9); (err != nil) != tc.wantErr {
+				t.Fatalf("wantErr=%v, got %v", tc.wantErr, err)
+			}
+		})
 	}
 }
