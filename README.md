@@ -5,7 +5,7 @@ A Terraform provider for managing [BinaryLane](https://www.binarylane.com.au/) c
 This is a fork of [oscarhermoso/terraform-provider-binarylane](https://github.com/oscarhermoso/terraform-provider-binarylane). It tracks upstream and adds:
 
 - `binarylane_server_reverse_name` resource for managing IPv4 PTR records
-- `destination_ports` is optional on `binarylane_server_firewall_rules`, allowing rules for protocols such as ICMP
+- omitting `destination_ports` on `binarylane_server_firewall_rules` (e.g. for ICMP rules) resolves to null after apply instead of leaving it unknown
 - server action waits are bounded by a timeout instead of polling forever
 
 ## Quick start
