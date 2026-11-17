@@ -10,6 +10,8 @@ This is a fork of [oscarhermoso/terraform-provider-binarylane](https://github.co
 
 ## Quick start
 
+Prebuilt provider archives are on the [releases page](https://github.com/IUCLabs/terraform-provider-binarylane/releases).
+
 ```terraform
 terraform {
   required_providers {
