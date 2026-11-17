@@ -8,7 +8,7 @@ If you want to deploy multiple parts of a cloud-init configuration, you can use 
 terraform {
   required_providers {
     binarylane = {
-      source = "git.unkin.net/unkin/binarylane"
+      source = "IUCLabs/binarylane"
     }
   }
 }

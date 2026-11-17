@@ -26,7 +26,7 @@ func main() {
 	flag.Parse()
 
 	opts := providerserver.ServeOpts{
-		Address: "git.unkin.net/unkin/binarylane",
+		Address: "registry.terraform.io/iuclabs/binarylane",
 		Debug:   debug,
 	}
 

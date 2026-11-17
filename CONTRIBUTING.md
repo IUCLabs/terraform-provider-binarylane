@@ -14,7 +14,7 @@ Based on [this example from the terraform docs](https://developer.hashicorp.com/
 provider_installation {
   dev_overrides {
     # Example GOBIN path, will need to be replaced with your own GOBIN path. Default is $GOPATH/bin
-    "git.unkin.net/unkin/binarylane" = "/path/to/terraform-provider-binarylane/bin"
+    "IUCLabs/binarylane" = "/path/to/terraform-provider-binarylane/bin"
   }
 
   direct {}

@@ -1,8 +1,31 @@
-# terraform-provider-binarylane
+# Terraform Provider for BinaryLane
 
-See the [documentation on the Terraform Registry](https://registry.terraform.io/providers/oscarhermoso/binarylane/latest), or see [examples in the `examples` directory](./examples/README.md).
+A Terraform provider for managing [BinaryLane](https://www.binarylane.com.au/) cloud resources: servers, firewall rules, reverse DNS, SSH keys, VPCs and load balancers.
+
+This is a fork of [oscarhermoso/terraform-provider-binarylane](https://github.com/oscarhermoso/terraform-provider-binarylane). It tracks upstream and adds:
+
+- `binarylane_server_reverse_name` resource for managing IPv4 PTR records
+- omitting `destination_ports` on `binarylane_server_firewall_rules` (e.g. for ICMP rules) resolves to null after apply instead of leaving it unknown
+- server action waits are bounded by a timeout instead of polling forever
+
+## Quick start
+
+Prebuilt provider archives are on the [releases page](https://github.com/IUCLabs/terraform-provider-binarylane/releases).
 
 ```terraform
+terraform {
+  required_providers {
+    binarylane = {
+      source = "IUCLabs/binarylane"
+    }
+  }
+}
+
+provider "binarylane" {
+  # Or set BINARYLANE_API_TOKEN
+  api_token = var.binarylane_api_token
+}
+
 resource "binarylane_server" "example" {
   region            = "per"
   image             = "ubuntu-24.04"
@@ -11,140 +34,28 @@ resource "binarylane_server" "example" {
 }
 ```
 
-## Progress
+More complete configurations live in [`examples/`](./examples/README.md).
 
-Planned features:
+## Requirements
 
-- [x] Servers
-  - [x] Firewall Rules
-  - [x] Cloud Init
-  - [x] Updating server properties
-  - [x] "Advanced Features"
-  - [x] IPV6
-  - [ ] Customised Backups
-  - [ ] Software
-  - [ ] Alerts
-- [x] SSH Keys
-- [x] Virtual Private Cloud
-- [x] Load Balancers
-- [ ] Images
-- [ ] DNS
-- [x] Docs
-  - [x] Generated docs
-  - [ ] Review & fill out remaining descriptions
-  - [ ] Include examples in docs
-- [x] Examples
-  - [x] Basic
-  - [x] Cloud Init
-  - [x] K3s
-  - [ ] NixOS
-  - [ ] Virtual Private Cloud
+- [Terraform](https://developer.hashicorp.com/terraform/downloads) >= 1.0 (plugin protocol 6)
+- [Go](https://go.dev/doc/install) >= 1.25 to build the provider
+- A BinaryLane API token
 
-## Server parameters
+## Documentation
 
-### Regions
+Provider and resource documentation is in [`docs/`](./docs/index.md), in the Terraform Registry layout. Regenerate it with `make docs` after changing a schema.
 
-<details>
-<summary>curl for regions</summary>
+## Developing
 
 ```sh
-curl -X GET "https://api.binarylane.com.au/v2/regions" \
-  -H "Authorization: Bearer $BINARYLANE_API_TOKEN" > tmp/regions.json
-
-jq '[ .regions[] | .slug ] | sort' tmp/regions.json
-```
-</details>
-
-```json
-[
-  "adl",
-  "bne",
-  "mel",
-  "per",
-  "sin",
-  "syd"
-]
+make build   # build the provider binary
+make test    # unit tests
+make docs    # regenerate docs/
 ```
 
-### Images
+Acceptance tests run against the live BinaryLane API and need `TF_ACC=1` and `BINARYLANE_API_TOKEN`. See [CONTRIBUTING.md](./CONTRIBUTING.md) for local development overrides.
 
-<details>
-<summary>curl for images</summary>
+## License
 
-```sh
-curl -X GET "https://api.binarylane.com.au/v2/images?type=distribution&&page=1&per_page=200" \
-  -H "Authorization: Bearer $BINARYLANE_API_TOKEN" > tmp/images.json
-
-jq '[ .images[] | .slug ] | sort' tmp/images.json
-```
-</details>
-
-```json
-[
-  "alma-10",
-  "alma-8",
-  "alma-9",
-  "byo-os",
-  "byo-os-uefi",
-  "byo-os-virtio-disabled",
-  "cpanel-plus-whm",
-  "debian-11",
-  "debian-12",
-  "debian-13",
-  "rocky-10",
-  "rocky-9",
-  "ubuntu-20.04.6",
-  "ubuntu-22.04",
-  "ubuntu-22.04-desktop",
-  "ubuntu-24.04",
-  "ubuntu-24.04-neon-desktop",
-  "ubuntu-26.04",
-  "windows-2016",
-  "windows-2016-sql-2016-web",
-  "windows-2019",
-  "windows-2019-sql-2017-std",
-  "windows-2019-sql-2017-web",
-  "windows-2022",
-  "windows-2022-sql-2019-std",
-  "windows-2022-sql-2019-web",
-  "windows-2025"
-]
-```
-
-### Sizes
-
-<details>
-<summary>curl for sizes</summary>
-
-```sh
-curl -X GET "https://api.binarylane.com.au/v2/sizes" \
-  -H "Authorization: Bearer $BINARYLANE_API_TOKEN" > tmp/sizes.json
-
-jq '[ .sizes[] | .slug ] | sort' tmp/sizes.json
-```
-</details>
-
-```json
-[
-  "cpu-2thr",
-  "cpu-4thr",
-  "cpu-6thr",
-  "cpu-8thr",
-  "ded-7900x-800gb",
-  "ded-e2136-400gb",
-  "ded-e2136-800gb",
-  "ded-e2288g-800gb",
-  "hdd-1000gb",
-  "hdd-2000gb",
-  "hdd-4000gb",
-  "hdd-500gb",
-  "hdd-6000gb",
-  "hdd-8000gb",
-  "std-1vcpu",
-  "std-2vcpu",
-  "std-4vcpu",
-  "std-6vcpu",
-  "std-8vcpu",
-  "std-min"
-]
-```
+[MIT](./LICENSE), as inherited from upstream.
